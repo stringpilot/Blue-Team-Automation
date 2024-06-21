@@ -9,37 +9,45 @@
 # Created at 06/19/2024 by @bsail
 
 echo ' [+] Creating Directory vol2_text'
+echo ' [+] '
+echo ' [+] '
+echo ' [+] '
 
+# Prompt for the directory path
+echo ' [+] Directory path you would like to use:'
+read dir_path
 
-mkdir -p ~/Documents/vol2_text
+# Create the directory
+mkdir -p "$dir_path/vol2_text"
 
-#Create Volatility Imageinfo, include (Volatility2 - Location - Raw Image location - command - imageinfo)
+# Prompt for the raw memory file
+echo ' [+] Please enter raw memory file: '
+read raw_filename
 
-echo ' [+] Please Enter raw memory file: '
-read raw_filename 
-image_info=$(python2 ~/Documents/vol2/vol.py -f $raw_filename imageinfo  2>/dev/null > imageinfo.txt)
+# Check if the raw memory file exists
+if [ ! -f "$raw_filename" ]; then
+    echo " [!] Error: File '$raw_filename' not found!"
+    exit 1
+fi
 
-echo ' [+]  Grab suggested profile'
-cat imageinfo.txt | grep "Suggested Profile(s)" 
+# Run Volatility imageinfo
+python2 ~/Documents/vol2/vol.py -f "$raw_filename" imageinfo 2>/dev/null > "$dir_path/vol2_text/imageinfo.txt"
 
-#Enter memory profile
+echo ' [+] Grab suggested profile'
+grep "Suggested Profile(s)" "$dir_path/vol2_text/imageinfo.txt"
 
-
-echo ' [+] Please Eneter memory Profile to be used: '
+# Prompt for the memory profile
+echo ' [+] Please enter memory profile to be used: '
 read profile_name
 
+# Run Volatility commands with the provided profile
+echo " [+] Running Volatility 2 with profile $profile_name on $raw_filename, saving to $dir_path/vol2_text..."
 
-
-# Run the pslist command with the provided profile
-echo " [+] Running pslist with profile $profile_name on $raw_filename..."
-
-python2 ~/Documents/vol2/vol.py -f $raw_filename --profile=$profile_name pslist > ~/Documents/vol2_text/vol2_pslist
-python2 ~/Documents/vol2/vol.py -f $raw_filename --profile=$profile_name pstree > ~/Documents/vol2_text/vol2_pstree
-python2 ~/Documents/vol2/vol.py -f $raw_filename --profile=$profile_name malfind > ~/Documents/vol2_text/vol2_malfind
-python2 ~/Documents/vol2/vol.py -f $raw_filename --profile=$profile_name svcscan > ~/Documents/vol2_text/vol2_svcscan
-python2 ~/Documents/vol2/vol.py -f $raw_filename --profile=$profile_name netscan > ~/Documents/vol2_text/vol2_netscan
-
-
+python2 ~/Documents/vol2/vol.py -f "$raw_filename" --profile="$profile_name" pslist > "$dir_path/vol2_text/pslist"
+python2 ~/Documents/vol2/vol.py -f "$raw_filename" --profile="$profile_name" pstree > "$dir_path/vol2_text/pstree"
+python2 ~/Documents/vol2/vol.py -f "$raw_filename" --profile="$profile_name" malfind > "$dir_path/vol2_text/malfind"
+python2 ~/Documents/vol2/vol.py -f "$raw_filename" --profile="$profile_name" svcscan > "$dir_path/vol2_text/svcscan"
+python2 ~/Documents/vol2/vol.py -f "$raw_filename" --profile="$profile_name" netscan > "$dir_path/vol2_text/netscan"
 
 echo ' [+] Please check the directory vol2_text to review the text files'
 echo ' [+] Best of luck on your hunt!'
