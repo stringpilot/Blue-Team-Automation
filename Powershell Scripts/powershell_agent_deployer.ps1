@@ -1,10 +1,16 @@
 # Path to the agent and configuration files
 $AgentFilePath = "C:\path\to\velociraptor_agent.exe"
 $ConfigFilePath = "C:\path\to\config.yaml"
-$DestinationPath = "C$\temp"
+$DestinationPath = "C:\Windows\Temp"
 
 # Take in domain credentials
 $Creds = Get-Credential -Message "Enter domain credentials"
+
+# Get all computers in the domain from the Domain Controller
+$DC = "YourDomainControllerNameOrIP"  # Replace with your DC's hostname or IP
+$Computers = Invoke-Command -ComputerName $DC -Credential $Creds -ScriptBlock {
+    Get-ADComputer -Filter * | Select-Object -ExpandProperty Name
+}
 
 # Function to push files and execute agent
 function Deploy-Agent {
@@ -13,55 +19,48 @@ function Deploy-Agent {
     )
 
     try {
+        # Create a remote PowerShell session with domain credentials
+        $session = New-PSSession -ComputerName $ComputerName -Credential $Creds
+
+        # Ensure the destination directory exists on the remote host
+        Invoke-Command -Session $session -ScriptBlock {
+            New-Item -Path "C:\temp" -ItemType Directory -Force
+        }
+
         # Copy the files to the remote host
-        Copy-Item -Path $AgentFilePath -Destination "\\$ComputerName\$DestinationPath\" -Credential $Creds -Force
-        Copy-Item -Path $ConfigFilePath -Destination "\\$ComputerName\$DestinationPath\" -Credential $Creds -Force
+        Copy-Item -Path $AgentFilePath -Destination $DestinationPath -ToSession $session -Force
+        Copy-Item -Path $ConfigFilePath -Destination $DestinationPath -ToSession $session -Force
 
         # Verify if the files are there
-        $AgentExists = Test-Path -Path "\\$ComputerName\$DestinationPath\velociraptor_agent.exe"
-        $ConfigExists = Test-Path -Path "\\$ComputerName\$DestinationPath\config.yaml"
+        $AgentExists = Invoke-Command -Session $session -ScriptBlock {
+            Test-Path -Path "$DestinationPath\velociraptor_agent.exe"
+        }
+        $ConfigExists = Invoke-Command -Session $session -ScriptBlock {
+            Test-Path -Path "$DestinationPath\config.yaml"
+        }
 
         if ($AgentExists -and $ConfigExists) {
             Write-Host "Files are successfully copied to $ComputerName. Executing agent..."
 
             # Execute the agent on the remote host
-            Invoke-Command -ComputerName $ComputerName -Credential $Creds -ScriptBlock {
-                Start-Process -FilePath "C:\temp\velociraptor_agent.exe" -ArgumentList "-c C:\temp\config.yaml" -NoNewWindow -Wait
+            Invoke-Command -Session $session -ScriptBlock {
+                Start-Process -FilePath "$DestinationPath\velociraptor_agent.exe" -ArgumentList "--config C:\temp\config.yaml" -NoNewWindow -Wait
             }
         } else {
             Write-Host "Failed to verify files on $ComputerName."
         }
+
+        # Close the remote session
+        Remove-PSSession -Session $session
     }
     catch {
         Write-Host "Error deploying to $ComputerName: $_"
     }
 }
 
-# Get all computers in the domain
-$Computers = Get-ADComputer -Filter * | Select-Object -ExpandProperty Name
-
-# Create a runspace pool for multi-threading
-$RunspacePool = [runspacefactory]::CreateRunspacePool(1, [Environment]::ProcessorCount)
-$RunspacePool.Open()
-$Runspaces = @()
-
+# Loop through each computer and deploy the agent
 foreach ($Computer in $Computers) {
-    $Runspace = [powershell]::Create().AddScript({
-        param ($ComputerName)
-        Deploy-Agent -ComputerName $ComputerName
-    }).AddArgument($Computer)
-    $Runspace.RunspacePool = $RunspacePool
-    $Runspaces += [PSCustomObject]@{ Pipe = $Runspace; Status = $Runspace.BeginInvoke() }
+    Deploy-Agent -ComputerName $Computer
 }
-
-# Wait for all threads to complete
-foreach ($Runspace in $Runspaces) {
-    $Runspace.Pipe.EndInvoke($Runspace.Status)
-    $Runspace.Pipe.Dispose()
-}
-
-# Close the runspace pool
-$RunspacePool.Close()
-$RunspacePool.Dispose()
 
 Write-Host "Deployment complete."
