@@ -41,11 +41,11 @@ function Deploy-Agent {
 
         if ($AgentExists -and $ConfigExists) {
             Write-Host "Files are successfully copied to $ComputerName. Executing agent..."
+       #Execute the agent on the remote host
 
-            # Execute the agent on the remote host
-            Invoke-Command -Session $session -ScriptBlock {
-                Start-Process -FilePath "$DestinationPath\velociraptor_agent.exe" -ArgumentList "--config C:\temp\config.yaml" -NoNewWindow -Wait
-            }
+        Invoke-Command -ComputerName $ComputerName -Credential $Creds -ScriptBlock {Start-Process -FilePath "C:\Windows\Temp\velociraptor-v0.6.9-windows-amd64.exe" ` -ArgumentList "service install --config C:\Windows\Temp\client.config.yaml" ` -NoNewWindow -Wait -PassThr}
+
+        Invoke-Command -ComputerName $ComputerName -Credential $Creds -ScriptBlock {Start-Process -FilePath "C:\Windows\Temp\velociraptor-v0.6.9-windows-amd64.exe" ` -ArgumentList "service start --config C:\Windows\Temp\client.config.yaml" ` -NoNewWindow -Wait -PassThr }
         } else {
             Write-Host "Failed to verify files on $ComputerName."
         }
@@ -54,7 +54,7 @@ function Deploy-Agent {
         Remove-PSSession -Session $session
     }
     catch {
-        Write-Host "Error deploying to $ComputerName: $_"
+        Write-Host "Error deploying to '$ComputerName': $_"
     }
 }
 
