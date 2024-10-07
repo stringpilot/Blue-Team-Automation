@@ -3,64 +3,43 @@ $AgentFilePath = "C:\path\to\velociraptor_agent.exe"
 $ConfigFilePath = "C:\path\to\config.yaml"
 $DestinationPath = "C:\Windows\Temp"
 
-# Take in domain credentials
-$Creds = Get-Credential -Message "Enter domain credentials"
+# Get user credentials
+$UserCreds = Get-Credential -Message "Enter credentials here: "
 
-# Get all computers in the domain from the Domain Controller
-$DC = "YourDomainControllerNameOrIP"  # Replace with your DC's hostname or IP
-$Computers = Invoke-Command -ComputerName $DC -Credential $Creds -ScriptBlock {
-    Get-ADComputer -Filter * | Select-Object -ExpandProperty Name
-}
+# Create array of IP addresses to deploy agents
+$array_IP = @("IP1", "IP2", "IP3")  # Replace with your list of target IPs
 
-# Function to push files and execute agent
-function Deploy-Agent {
-    param (
-        [string]$ComputerName
-    )
-
+# Function to deploy agent to remote machines
+foreach ($ip in $array_IP) {
     try {
-        # Create a remote PowerShell session with domain credentials
-        $session = New-PSSession -ComputerName $ComputerName -Credential $Creds
+        # Create a new session to the remote machine
+        $session = New-PSSession -ComputerName $ip -Credential $UserCreds
 
-        # Ensure the destination directory exists on the remote host
+        # Copy the agent and configuration file to the remote host
+        Copy-Item -Path $AgentFilePath -Destination "$DestinationPath\" -ToSession $session
+        Copy-Item -Path $ConfigFilePath -Destination "$DestinationPath\" -ToSession $session
+
+        # Execute the agent installation on the remote host
         Invoke-Command -Session $session -ScriptBlock {
-            New-Item -Path "C:\temp" -ItemType Directory -Force
+            Start-Process -FilePath "C:\Windows\Temp\velociraptor_agent.exe" `
+                          -ArgumentList "service install --config C:\Windows\Temp\config.yaml" `
+                          -NoNewWindow -Wait -PassThru
         }
 
-        # Copy the files to the remote host
-        Copy-Item -Path $AgentFilePath -Destination $DestinationPath -ToSession $session -Force
-        Copy-Item -Path $ConfigFilePath -Destination $DestinationPath -ToSession $session -Force
-
-        # Verify if the files are there
-        $AgentExists = Invoke-Command -Session $session -ScriptBlock {
-            Test-Path -Path "$DestinationPath\velociraptor_agent.exe"
+        # Start the agent service on the remote host
+        Invoke-Command -Session $session -ScriptBlock {
+            Start-Process -FilePath "C:\Windows\Temp\velociraptor_agent.exe" `
+                          -ArgumentList "service start --config C:\Windows\Temp\config.yaml" `
+                          -NoNewWindow -Wait -PassThru
         }
-        $ConfigExists = Invoke-Command -Session $session -ScriptBlock {
-            Test-Path -Path "$DestinationPath\config.yaml"
-        }
-
-        if ($AgentExists -and $ConfigExists) {
-            Write-Host "Files are successfully copied to $ComputerName. Executing agent..."
-       #Execute the agent on the remote host
-
-        Invoke-Command -ComputerName $ComputerName -Credential $Creds -ScriptBlock {Start-Process -FilePath "C:\Windows\Temp\velociraptor-v0.6.9-windows-amd64.exe" ` -ArgumentList "service install --config C:\Windows\Temp\client.config.yaml" ` -NoNewWindow -Wait -PassThr}
-
-        Invoke-Command -ComputerName $ComputerName -Credential $Creds -ScriptBlock {Start-Process -FilePath "C:\Windows\Temp\velociraptor-v0.6.9-windows-amd64.exe" ` -ArgumentList "service start --config C:\Windows\Temp\client.config.yaml" ` -NoNewWindow -Wait -PassThr }
-        } else {
-            Write-Host "Failed to verify files on $ComputerName."
-        }
-
-        # Close the remote session
-        Remove-PSSession -Session $session
     }
     catch {
-        Write-Host "Error deploying to '$ComputerName': $_"
+        Write-Host "Error deploying to '$ip': $_"
+    }
+    finally {
+        # Clean up the session
+        if ($session) {
+            Remove-PSSession -Session $session
+        }
     }
 }
-
-# Loop through each computer and deploy the agent
-foreach ($Computer in $Computers) {
-    Deploy-Agent -ComputerName $Computer
-}
-
-Write-Host "Deployment complete."
